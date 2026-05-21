@@ -83,11 +83,21 @@ export function useMultiSectionUpload(): UseMultiSectionUploadReturn {
 
   // ── Socket setup ────────────────────────────────────────────────────────────
   useEffect(() => {
-    const AI_URL = process.env.NEXT_PUBLIC_API_AI || "http://localhost:8000";
+    const AI_URL = process.env.NEXT_PUBLIC_API_AI || "http://localhost:8000"; // kept for HTTP calls
 
-    const socket = io(AI_URL, {
+    // Socket must NOT use AI_URL ("/api/ai" in Docker) — that becomes a
+    // Socket.IO *namespace* and "/api/ai" does NOT exist on the server.
+    // NEXT_PUBLIC_SOCKET_URL:
+    //   • Local dev  → "http://localhost:4006"  (direct to ai-service)
+    //   • Docker     → "" (blank)  → falls back to window.origin → Nginx /socket.io/ → ai-service:4006
+    const SOCKET_URL =
+      process.env.NEXT_PUBLIC_SOCKET_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "http://localhost:8000");
+
+    const socket = io(SOCKET_URL, {
       withCredentials: true, // backend reads JWT from cookie
-      transports: ["websocket"],
+      // polling first — required for Nginx WebSocket upgrade handshake
+      transports: ["polling", "websocket"],
       reconnectionAttempts: 5,
     });
 

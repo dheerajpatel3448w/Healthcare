@@ -21,12 +21,13 @@ export const OrbitalMenu = ({ isOpen, onClose }: { isOpen: boolean; onClose: () 
 
   useEffect(() => {
     setMounted(true);
-    setIsAuthenticated(isAuth || isAuth2 || !!Cookies.get("token"));
+    setIsAuthenticated(isAuth || isAuth2 || !!localStorage.getItem("token"));
   }, [isAuth, isAuth2]);
 
   const handleLogout = (e: React.MouseEvent) => {
     e.preventDefault();
     Cookies.remove("token", { path: '/' });
+    localStorage.removeItem("token");
     localStorage.removeItem("userRole");
     setIsAuth(false);
     setIsAuth2(false);

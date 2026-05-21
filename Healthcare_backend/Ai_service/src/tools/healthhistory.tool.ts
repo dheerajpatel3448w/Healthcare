@@ -91,8 +91,8 @@ export const fetchMedicalTimelineTool = tool({
     limitReports: z
       .number()
       .optional().nullable()
-      .default(30)
-      .describe("Maximum number of reports to include. Default 30.")
+      .default(10)
+      .describe("Maximum number of reports to include. Default 10.")
   }),
   execute: async ({ userId, limitReports }) => {
     try {
@@ -106,28 +106,33 @@ export const fetchMedicalTimelineTool = tool({
       }
       const userObjectId = new mongoose.Types.ObjectId(userId);
 
-      // Fetch reports (sorted oldest → newest for timeline)
+      // Fetch reports (sorted newest first, limited, then reversed for chronological timeline)
       const reports = await Report.find({ patientId: userObjectId })
         .select("reportName reportType uploadedAt analysis extractedText")
-        .sort({ uploadedAt: 1 })
-        .limit(limitReports ?? 30)
+        .sort({ uploadedAt: -1 })
+        .limit(limitReports ?? 10)
         .lean();
+      reports.reverse();
 
-      // Fetch ReportAnalysis sessions (combined AI analysis sessions)
+      // Fetch ReportAnalysis sessions (sorted newest first, limited to 5, then reversed)
       const analyses = await ReportAnalysis.find({ patientId: userObjectId })
-        .select("reports finalAnalysis createdAt")
-        .sort({ createdAt: 1 })
+        .select("reports.reportId finalAnalysis createdAt")
+        .sort({ createdAt: -1 })
+        .limit(5)
         .lean();
+      analyses.reverse();
 
-      // Fetch appointments (completed + scheduled for history)
+      // Fetch appointments (sorted newest first, limited to 10, then reversed)
       const appointments = await Appointment.find({
         userId: userObjectId,
         status: { $in: ["completed", "scheduled", "rescheduled"] }
       })
         .select("appointmentDate status consultationType reason doctorId")
         .populate("doctorId", "specialization")
-        .sort({ appointmentDate: 1 })
+        .sort({ appointmentDate: -1 })
+        .limit(10)
         .lean();
+      appointments.reverse();
 
       // Build unified timeline entries
       const timelineEntries: {
@@ -140,29 +145,38 @@ export const fetchMedicalTimelineTool = tool({
       }[] = [];
 
       for (const r of reports) {
+        // Trim analysis to save massive token space. Do NOT return the parameters list in timeline!
+        const trimmedAnalysis = r.analysis ? {
+          summary: r.analysis.summary || "",
+          conditionDetected: r.analysis.conditionDetected || "None detected",
+          findings: r.analysis.findings || []
+        } : null;
+
         timelineEntries.push({
           date: r.uploadedAt,
           source: "report",
           type: r.reportType,
           id: r._id.toString(),
           summary: `${r.reportType.toUpperCase()} Report: "${r.reportName || "Unnamed"}"`,
-          rawData: {
-            analysis: r.analysis,
-            extractedTextSnippet: r.extractedText
-              ? r.extractedText.slice(0, 500)
-              : null
-          }
+          rawData: trimmedAnalysis ? { report_analysis: trimmedAnalysis } : null
         });
       }
 
       for (const a of analyses) {
+        // Trim finalAnalysis to only keep key summaries
+        const trimmedFinal = a.finalAnalysis ? {
+          overall_health_assessment: a.finalAnalysis.overall_health_assessment || "",
+          likely_health_issue: a.finalAnalysis.likely_health_issue || "",
+          confidence_score: a.finalAnalysis.confidence_score ?? 1
+        } : null;
+
         timelineEntries.push({
           date: a.createdAt,
           source: "analysis",
           type: "combined_analysis",
           id: a._id.toString(),
           summary: `Combined AI Analysis session covering ${a.reports?.length ?? 0} report(s)`,
-          rawData: { finalAnalysis: a.finalAnalysis }
+          rawData: trimmedFinal ? { final_analysis: trimmedFinal } : null
         });
       }
 
@@ -240,14 +254,16 @@ export const detectHealthTrendsTool = tool({
       }
       const userObjectId = new mongoose.Types.ObjectId(userId);
 
-      // Only scan lab reports (they contain structured numeric values)
+      // Only scan lab reports (limited to latest 15 reports for trend analysis)
       const labReports = await Report.find({
         patientId: userObjectId,
         reportType: "lab"
       })
         .select("uploadedAt analysis reportName")
-        .sort({ uploadedAt: 1 })
+        .sort({ uploadedAt: -1 })
+        .limit(15)
         .lean();
+      labReports.reverse();
 
       if (!labReports || labReports.length === 0) {
         return {
@@ -350,11 +366,12 @@ export const detectRiskPatternsTool = tool({
       }
       const userObjectId = new mongoose.Types.ObjectId(userId);
 
-      // Fetch everything needed for pattern detection
+      // Fetch everything needed for pattern detection (limited to protect context window size)
       const [reports, appointments, analyses] = await Promise.all([
         Report.find({ patientId: userObjectId })
           .select("reportType uploadedAt analysis reportName")
-          .sort({ uploadedAt: 1 })
+          .sort({ uploadedAt: -1 })
+          .limit(20)
           .lean(),
         Appointment.find({
           userId: userObjectId,
@@ -362,12 +379,20 @@ export const detectRiskPatternsTool = tool({
         })
           .select("appointmentDate reason doctorId")
           .populate("doctorId", "specialization")
-          .sort({ appointmentDate: 1 })
+          .sort({ appointmentDate: -1 })
+          .limit(20)
           .lean(),
         ReportAnalysis.find({ patientId: userObjectId })
           .select("finalAnalysis createdAt")
+          .sort({ createdAt: -1 })
+          .limit(5)
           .lean()
       ]);
+
+      // Reverse to maintain oldest-to-newest chronological order for pattern detection
+      reports.reverse();
+      appointments.reverse();
+      analyses.reverse();
 
       const detectedPatterns: {
         pattern: string;

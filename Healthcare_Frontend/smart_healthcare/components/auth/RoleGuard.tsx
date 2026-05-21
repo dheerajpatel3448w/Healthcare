@@ -1,7 +1,6 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Cookies from "js-cookie";
 
 export const RoleGuard = ({ 
    children, 
@@ -14,25 +13,29 @@ export const RoleGuard = ({
   const [isVerified, setIsVerified] = useState(false);
 
   useEffect(() => {
-    const token = Cookies.get("token");
+    // localStorage is synchronous — no race condition, no cookie domain issues
+    const token = localStorage.getItem("token");
+
     if (!token) {
-       router.replace("/login");
-       return;
+      console.log("no token found in localStorage");
+      router.replace("/login");
+      return;
     }
+
+    console.log("token found ✓");
 
     const storedRole = localStorage.getItem("userRole");
 
     if (storedRole === allowedRole) {
-       setIsVerified(true);
+      setIsVerified(true);
     } else {
-       // redirect away to their correct dashboard
-       if (storedRole === "doctor") {
-          router.replace("/dashboard/doctor");
-       } else if (storedRole === "patient") {
-          router.replace("/dashboard");
-       } else {
-          router.replace("/login");
-       }
+      if (storedRole === "doctor") {
+        router.replace("/dashboard/doctor");
+      } else if (storedRole === "patient") {
+        router.replace("/dashboard");
+      } else {
+        router.replace("/login");
+      }
     }
   }, [allowedRole, router]);
 

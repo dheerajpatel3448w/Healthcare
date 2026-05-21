@@ -1,0 +1,265 @@
+version: "3.9"
+
+# ─── Shared Network ───────────────────────────────────────────────────────────
+networks:
+  healthcare_net:
+    driver: bridge
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  qdrant_data:
+  neo4j_data:
+  redis_data:
+
+services:
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  #  NGINX — Reverse Proxy (single public entry point on port 80)
+  # ══════════════════════════════════════════════════════════════════════════════
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: healthcare-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - frontend
+      - auth-service
+      - user-service
+      - doctor-service
+      - appointment-service
+      - habit-service
+      - ai-service
+    networks:
+      - healthcare_net
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  #  FRONTEND — Next.js  (internal port 3000)
+  # ══════════════════════════════════════════════════════════════════════════════
+  frontend:
+    build:
+      context: ./Healthcare_Frontend/smart_healthcare
+      dockerfile: Dockerfile
+      # ── Pass values into the Dockerfile ARGs so Next.js inlines them at build time ──
+      args:
+        - NEXT_PUBLIC_API_AUTH=/api/auth
+        - NEXT_PUBLIC_API_USER=/api/user
+        - NEXT_PUBLIC_API_DOCTOR=/api/doctor
+        - NEXT_PUBLIC_API_APPOINTMENT=/api/appointment
+        - NEXT_PUBLIC_HABIT_TRACKER_URL=/api/habit
+        - NEXT_PUBLIC_API_AI=/api/ai
+        - NEXT_PUBLIC_SOCKET_URL=
+    container_name: healthcare-frontend
+    expose:
+      - "3000"
+    environment:
+      - NODE_ENV=production
+      # These runtime vars are for reference / SSR usage only.
+      # Client-side values are already baked in during build above.
+      - NEXT_PUBLIC_API_AUTH=/api/auth
+      - NEXT_PUBLIC_API_USER=/api/user
+      - NEXT_PUBLIC_API_DOCTOR=/api/doctor
+      - NEXT_PUBLIC_API_APPOINTMENT=/api/appointment
+      - NEXT_PUBLIC_HABIT_TRACKER_URL=/api/habit
+      - NEXT_PUBLIC_API_AI=/api/ai
+      - NEXT_PUBLIC_SOCKET_URL=
+    networks:
+      - healthcare_net
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  #  AUTH SERVICE  (internal port 4001)
+  #  Routes: POST /auth/register, POST /auth/login,
+  #           POST /auth/logout,  GET  /auth/me
+  # ══════════════════════════════════════════════════════════════════════════════
+  auth-service:
+    build:
+      context: ./Healthcare_backend/auth-service
+      dockerfile: Dockerfile
+    container_name: healthcare-auth
+    expose:
+      - "4001"
+    env_file:
+      - ./Healthcare_backend/auth-service/.env
+    environment:
+      - PORT=4001
+      - FRONTEND_URL=http://localhost
+    networks:
+      - healthcare_net
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  #  USER SERVICE  (internal port 4002)
+  #  Routes: POST /profile/create, GET /profile/getprofile,
+  #           PUT  /profile/updateprofile, DELETE /profile/deleteprofile,
+  #           GET  /profile/:id
+  # ══════════════════════════════════════════════════════════════════════════════
+  user-service:
+    build:
+      context: ./Healthcare_backend/user_service
+      dockerfile: Dockerfile
+    container_name: healthcare-user
+    expose:
+      - "4002"
+    env_file:
+      - ./Healthcare_backend/user_service/.env
+    environment:
+      - PORT=4002
+      - FRONTEND_URL=http://localhost
+    networks:
+      - healthcare_net
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  #  DOCTOR SERVICE  (internal port 4003)
+  #  Routes: GET /doctor/all (public), POST /doctor/create,
+  #           GET /doctor/getprofile, PUT /doctor/updateprofile,
+  #           DELETE /doctor/deleteprofile, GET /doctor/:id
+  # ══════════════════════════════════════════════════════════════════════════════
+  doctor-service:
+    build:
+      context: ./Healthcare_backend/Docter_service
+      dockerfile: Dockerfile
+    container_name: healthcare-doctor
+    expose:
+      - "4003"
+    env_file:
+      - ./Healthcare_backend/Docter_service/.env
+    environment:
+      - PORT=4003
+      - FRONTEND_URL=http://localhost
+    networks:
+      - healthcare_net
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  #  APPOINTMENT SERVICE  (internal port 4004)
+  #  Routes: POST /api/v1/appointments/create,
+  #           GET  /api/v1/appointments/my-appointments,
+  #           GET  /api/v1/appointments/doctor/:doctorId,
+  #           PATCH /api/v1/appointments/:id/status,
+  #           PATCH /api/v1/appointments/:id/cancel,
+  #           POST /api/v1/appointments/:id/reschedule,
+  #           GET  /api/v1/appointments/doctor/:doctorId/booked-slots,
+  #           GET  /api/v1/appointments/:id
+  # ══════════════════════════════════════════════════════════════════════════════
+  appointment-service:
+    build:
+      context: ./Healthcare_backend/Appoinment_service
+      dockerfile: Dockerfile
+    container_name: healthcare-appointment
+    expose:
+      - "4004"
+    env_file:
+      - ./Healthcare_backend/Appoinment_service/.env
+    environment:
+      - PORT=4004
+      - FRONTEND_URL=http://localhost
+    networks:
+      - healthcare_net
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  #  HABIT TRACKER SERVICE  (internal port 4005)
+  #  Routes: GET /health (public), GET/POST /api/v1/habits/goals,
+  #           POST /api/v1/habits/log, GET /api/v1/habits/today,
+  #           GET /api/v1/habits/streak, GET /api/v1/habits/trends,
+  #           GET /api/v1/habits/tip
+  # ══════════════════════════════════════════════════════════════════════════════
+  habit-service:
+    build:
+      context: ./Healthcare_backend/HabitTracker_service
+      dockerfile: Dockerfile
+    container_name: healthcare-habit
+    expose:
+      - "4005"
+    env_file:
+      - ./Healthcare_backend/HabitTracker_service/.env
+    environment:
+      - PORT=4005
+      - FRONTEND_URL=http://localhost
+    networks:
+      - healthcare_net
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  #  AI SERVICE  (internal port 4006)  — also serves Socket.IO WebSocket
+  #  Routes:
+  #    POST /images/upload, GET /images/job-status/:jobId, GET /images/reports
+  #    GET  /analysis/,     POST /analysis/reports,        GET /analysis/history
+  #    POST /ai/chat,       GET  /ai/history
+  #    POST /doctor-ai/chat, GET /doctor-ai/history
+  #    WebSocket: /socket.io/
+  # ══════════════════════════════════════════════════════════════════════════════
+  ai-service:
+    build:
+      context: ./Healthcare_backend/Ai_service
+      dockerfile: Dockerfile
+    container_name: healthcare-ai
+    expose:
+      - "4006"
+    env_file:
+      - ./Healthcare_backend/Ai_service/.env
+    environment:
+      - PORT=4006
+      - FRONTEND_URL=http://localhost
+      # ── Override localhost references from .env — inside Docker, use service names ──
+      - REDIS_HOST=redis-stack
+      - REDIS_PORT=6379
+      - REDIS_URL=redis://redis-stack:6379
+      - NEO4J_URL=neo4j://neo4j:7687
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+    depends_on:
+      - redis-stack
+      - neo4j
+      - qdrant
+    networks:
+      - healthcare_net
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  #  SHARED INFRASTRUCTURE
+  # ══════════════════════════════════════════════════════════════════════════════
+
+  # Redis — used by AI service (job queues, caching)
+  redis-stack:
+    image: redis/redis-stack:latest
+    container_name: healthcare-redis
+    expose:
+      - "6379"
+      - "8001"   # RedisInsight UI (optional dev tool)
+    volumes:
+      - redis_data:/data
+    networks:
+      - healthcare_net
+    restart: unless-stopped
+
+  # Qdrant — vector DB for AI embeddings
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: healthcare-qdrant
+    expose:
+      - "6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - healthcare_net
+    restart: unless-stopped
+
+  # Neo4j — graph DB for AI knowledge graph
+  neo4j:
+    image: neo4j:5-community
+    container_name: healthcare-neo4j
+    expose:
+      - "7474"
+      - "7687"
+    environment:
+      - NEO4J_AUTH=neo4j/reform-william-center-vibrate-press-5829
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - healthcare_net
+    restart: unless-stopped

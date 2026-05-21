@@ -33,9 +33,11 @@ export default function LoginPage() {
     try {
       const res = await axios.post(`${process.env.NEXT_PUBLIC_API_AUTH}/auth/login`, formData);
       if (res.data.success) {
-        Cookies.set("token", res.data.token);
+        Cookies.set("token", res.data.token, { expires: 7, sameSite: "lax" });
+        localStorage.setItem("token", res.data.token);
         localStorage.setItem("userRole", res.data.user.role);
         toast.success("Login successful");
+        console.log("login successfull");
       }
       if (res.data.user.role === "patient") {
         const res2 = await axios.get(`${process.env.NEXT_PUBLIC_API_USER}/profile/getprofile`, {
@@ -44,6 +46,8 @@ export default function LoginPage() {
         });
         setUser({ ...res.data.user, profile: { ...res2.data.profile } });
         setIsAuth(true);
+        // Small delay to ensure cookie is committed before RoleGuard reads it
+        await new Promise((r) => setTimeout(r, 100));
         router.push("/dashboard");
       }
       if (res.data.user.role === "doctor") {
@@ -53,6 +57,8 @@ export default function LoginPage() {
         });
         setDoctor({ ...res.data.user, doctorProfile: { ...res3.data.profile } });
         setIsAuth2(true);
+        // Small delay to ensure cookie is committed before RoleGuard reads it
+        await new Promise((r) => setTimeout(r, 100));
         router.push("/dashboard/doctor");
       }
     } catch (error) {
@@ -86,7 +92,7 @@ export default function LoginPage() {
       {/* RIGHT: Login Form Panel */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 sm:p-12 lg:p-24 bg-[#09090B] relative">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(6,182,212,0.03),transparent_50%)] pointer-events-none" />
-        
+
         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }} className="w-full max-w-sm relative z-10">
           <div className="lg:hidden flex items-center gap-3 mb-10">
             <div className="w-10 h-10 bg-cyan-500/10 backdrop-blur border border-cyan-500/30 rounded-xl flex items-center justify-center">

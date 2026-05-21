@@ -29,8 +29,8 @@ const config = {
     config: {
       collectionName: 'memories',
       embeddingModelDims: 1536,
-      host: 'localhost',
-      port: 6333,
+      host: process.env.QDRANT_HOST || 'localhost',
+      port: parseInt(process.env.QDRANT_PORT || '6333'),
     },
   },
   enableGraph: true,

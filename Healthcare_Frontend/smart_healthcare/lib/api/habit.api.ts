@@ -9,9 +9,9 @@ import {
   HabitKey,
 } from "../../type";
 
-const LOCAL_URL = "http://localhost:5006/api/v1/habits";
+
 export const habitURL =
-  process.env.NEXT_PUBLIC_HABIT_TRACKER_URL || LOCAL_URL;
+  `${process.env.NEXT_PUBLIC_HABIT_TRACKER_URL}/api/v1/habits`;
 
 const api = axios.create({
   baseURL: habitURL,
